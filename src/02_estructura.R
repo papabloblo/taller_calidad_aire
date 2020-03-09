@@ -1,19 +1,25 @@
 #'
-#' CAMBIO EN LA ESTRUCTURA DE LOS DATOS
+#' ESTRUCTURACIÓN DE LOS DATOS
+#' 
+#' La estructura de los datos originales no es adecuada para la modelización.
+#' 
+#' A partir de data/raw/calidad_aire.RDS se obtiene data/02_estructura.RDS
+#' se hacen la siguientes transformaciones:
 #' 
 #' 1. Nombres de las variables en minúscula
 #' 2. El año se denomina anyo
 #' 3. Se eliminan variables unarias (con un único valor)
 #' 4. Se elimina punto_muestreo
-#' 5. Se eleige el tipo de variable adecuada para cada dato
+#' 5. Se elige el tipo de variable adecuada para cada dato
 #' 6. Se genera una observación para cada estación, magnitud, anyo, mes y día.
-#' 7. Se elimina días erróneos (día 31 de meses con 30 días y días de febrero)
+#' 7. Se eliminan días erróneos (día 31 de meses con 30 días y días de febrero)
 
 
 
 # DEPENDENCIAS -----------------------------------------------------------
 
 library(tidyverse)
+source("src/utils.R")
 
 
 # CARGA DE DATOS ----------------------------------------------------------
@@ -36,6 +42,11 @@ var_unarias <- sapply(calidad_aire, function(x) length(unique(x)) == 1)
 
 calidad_aire <- calidad_aire[, !var_unarias]
 
+# Según la documentación del ayuntamiento:
+#   "El campo punto de muestreo incluye el código de la estación completo
+#   (provincia, municipio y estación) más la magnitud y la técnica de
+#   muestreo."
+# Esa información ya está recogida en otras variables.
 calidad_aire$punto_muestreo <- NULL
 
 
@@ -101,9 +112,14 @@ calidad_aire <- calidad_aire %>%
   filter(!(dia > 29 & mes == 2))
 
 calidad_aire <- calidad_aire %>% 
-  filter(!(!is.bisiesto(anyo) & dia == 29))
+  filter(!(!is.bisiesto(anyo) & mes == 2 & dia == 29))
 
 
+# VALORES NO VALIDADOS ----------------------------------------------------
+
+# Únicamente son válidos los datos que llevan el código de validación "V"
+calidad_aire$medicion[calidad_aire$validado == "N"] <- NA
+calidad_aire$validado <- NULL
 
 # VARIABLE FECHA ----------------------------------------------------------
 
@@ -145,5 +161,23 @@ calidad_aire$magnitud2 <- NULL
 calidad_aire <- calidad_aire %>% 
   pivot_wider(names_from = magnitud, 
               values_from = medicion
-  )
+              )
+
+
+
+# ORDENACIÓN LÓGICA DE VARIABLES ------------------------------------------
+
+calidad_aire <- calidad_aire %>% 
+  select(fecha,
+         anyo:dia,
+         estacion,
+         so2:nmhc
+         )
+
+
+# GUARDADO DE DATOS -------------------------------------------------------
+
+saveRDS(calidad_aire, "data/02_estructura.RDS")
+
+
 
