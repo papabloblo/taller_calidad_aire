@@ -1,0 +1,347 @@
+---
+title: "Análisis exploratorio de datos"
+author: "Pablo Hidalgo García"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(leaflet)
+```
+
+# Importación de datos
+
+
+```{r}
+calidad_aire <- readRDS("data/02_estructura.RDS")
+calidad_aire_orig <- readRDS("data/raw/calidad_aire.RDS")
+estaciones <- readRDS("data/raw/coordenadas_estaciones.RDS")
+```
+
+El conjunto de datos **calidad del aire** contiene `r nrow(calidad_aire)` observaciones y `r ncol(calidad_aire)` variables. En las secciones siguientes analizaremos los datos haciendo las operaciones de transformación y limpieza necesarias
+
+
+# Calidad de la información
+
+# Estaciones de medición
+
+Existen `r length(unique(calidad_aire$estacion))` estaciones distintas cuya situación se puede ver en el siguiente mapa
+
+```{r}
+leaflet(data = estaciones) %>%
+  addTiles() %>%
+  addMarkers(lng = ~longitud, lat = ~latitud,
+             label = ~as.character(estacion)
+             )
+```
+
+Podemos estudiar la calidad de los datos en las distintas estaciones. Por ejemplo, puede que no todas las estaciones sean capaces de medir todas las magnitudes. En el siguiente gráfico representamos el porcentaje de mediciones ausentes (o no válidas) para cada magnitud y estación
+
+```{r}
+porc_na <- calidad_aire %>% 
+  group_by(estacion) %>% 
+  summarise_at(vars(so2:nmhc), function(x) mean(is.na(x)))
+
+porc_na %>% 
+  pivot_longer(
+    cols = so2:nmhc,
+    names_to = "magnitud"
+  ) %>% 
+  ggplot(
+    aes(x = magnitud,
+        y = as.factor(estacion),
+        fill = value)
+  ) +
+  geom_tile() +
+  theme_minimal() +
+  labs(
+    title = "Porcentaje de mediciones ausentes para cada magnitud y estación",
+    fill = "",
+    x = "",
+    y = "Estación",
+    caption = "MSMK: taller de calidad del aire"
+  ) +
+  scale_fill_continuous(trans = "reverse", labels = scales::percent, breaks = c(1, 0.5, 0), limits = c(1, 0)) +
+  theme(legend.position = "top")
+```
+
+En el gráfico anterior se puede ver que la calidad de la información de las magnitudes `no`, `no2` y `nox` es muy alta. Sin embargo, para el resto de magnitudes no hay homogeneidad entre las estaciones. Además, en este proyecto buscamos predecir la calidad del aire **para la ciudad de Madrid**. Por lo tanto, la información deberá estar agregada de forma que tengamos **un único valor por magnitud y día**. 
+
+La pregunta es ¿cómo agregamos la información? La aproximación más habitual sería obtener el valor medio de cada magnitud en cada día. Ésta es la agregación que seguiremos en este proyecto. No obstante, la agregación es una cuestión importante en el diseño del objetivo del proyecto. Por ejemplo, el valor máximo podría ser otra forma de agregación, de forma que se pudiesen activar protocolos de contaminación en el caso de que en algún punto de la ciudad se sobrepasen ciertos límites y que, utilizando la media, podríamos diluir los valores extremos.
+
+Agrupamos los datos con la media en el siguiente código:
+```{r}
+calidad_aire <- calidad_aire %>% 
+  group_by(fecha, anyo, mes, dia) %>% 
+  summarise_at(vars(so2:nmhc), mean, na.rm = TRUE) %>% 
+  ungroup()
+```
+
+
+Nos podemos hacer la pregunta de si la calidad de los datos ha ido evolucionando con el tiempo. A continuación representamos aquellos días para los que las magnitudes no están informadas aún habiendo agregado todas las estaciones
+
+```{r}
+calidad_aire %>% 
+  pivot_longer(
+    cols = so2:nmhc,
+    names_to = "magnitud"
+  ) %>% 
+  mutate(value = is.na(value)) %>% 
+  ggplot(
+    aes(x = magnitud,
+        y = fecha,
+        fill = as.character(as.numeric(value))
+    )
+  ) +
+  geom_tile() +
+  scale_fill_manual(values = c("0" = "black", "1" = "white")) +
+  theme_minimal() +
+  labs(
+    title = "Porcentaje de mediciones ausentes en cada estación",
+    fill = "",
+    x = "",
+    y = "Estación",
+    caption = "MSMK: taller de calidad del aire"
+  ) +
+  theme(legend.position = "none")
+```
+
+Teniendo en cuenta que una de las variables que consideramos importante en nuestro estudio es `pm25`, esta variable no tiene una buena calidad en el periodo de los datos anterior al 2005. Por lo tanto, **eliminamos aquellas observaciones anteriores al 1 de enero del 2005**.
+
+```{r}
+calidad_aire <- calidad_aire %>% 
+  filter(fecha >= as.Date("2005-01-01"))
+```
+
+
+# Fecha
+
+El conjunto de datos tiene una componente temporal importante. **Debemos asegurarnos si están recogidos todos los días del periodo temporal.**
+
+Para ello, comenzamos ordenando el conjunto de datos por la variable fecha
+
+```{r}
+calidad_aire <- calidad_aire %>% 
+  arrange(fecha)
+```
+
+Y comprobamos que la diferencia entre dos días consecutivos es siempre 1
+
+```{r}
+table(calidad_aire$fecha - lag(calidad_aire$fecha), useNA = "always")
+```
+
+Efectivamente, no hay días faltantes en los datos.
+
+
+# Resumen de las variables
+
+En la siguienta tabla se muestran estadísticos relevantes para cada variable.
+
+```{r}
+skimr::skim(calidad_aire)
+```
+
+En un proyecto real, habría que inspeccionar el comportamiento variable a variable (en este caso es asumible analizar 18 variables). Aquí solamente analizaremos la variable `pm25`.
+
+
+
+# Estaciones
+
+Existen `r length(unique(calidad_aire$estacion))` estaciones distintas. La calidad de las mediciones recogidas por la estaciones es variable
+
+```{r}
+porc_na <- calidad_aire %>% 
+  group_by(estacion) %>% 
+  summarise_at(vars(so2:nmhc), function(x) mean(is.na(x)))
+```
+
+```{r}
+porc_na %>% 
+  pivot_longer(
+    cols = so2:nmhc,
+    names_to = "magnitud"
+  ) %>% 
+  ggplot(
+    aes(x = magnitud,
+        y = as.factor(estacion),
+        fill = value)
+  ) +
+  geom_tile() +
+  theme_minimal() +
+  labs(
+    title = "Porcentaje de mediciones ausentes en cada estación",
+    fill = "",
+    x = "",
+    y = "Estación",
+    caption = "MSMK: taller de calidad del aire"
+  ) +
+  theme(legend.position = "top")
+```
+
+```{r}
+calidad_aire %>%
+  select(anyo, mes, estacion, so2:nmhc) %>% 
+  pivot_longer(
+    cols = so2:nmhc,
+    names_to = "magnitud"
+  ) %>% 
+  group_by(anyo, magnitud) %>% 
+  summarise(porc_na = mean(is.na(value))) %>% 
+  # mutate(fecha = lubridate::make_date(year = anyo, month = mes, day = 1L)) %>% 
+  ggplot(
+    aes(x = magnitud,
+        y = anyo,
+        fill = porc_na)
+  ) +
+  geom_tile() +
+  labs(
+    title = "Porcentaje de mediciones ausentes en cada estación",
+    fill = "Porcentaje de\nmediciones ausentes"
+  ) +
+  theme(legend.position = "top")
+```
+
+
+
+```{r}
+calidad_aire <- calidad_aire %>% 
+  group_by(fecha, anyo, mes, dia) %>% 
+  summarise_at(vars(so2:nmhc), mean, na.rm = TRUE) %>% 
+  ungroup()
+```
+
+
+```{r}
+calidad_aire <- calidad_aire %>% 
+  arrange(fecha)
+
+table(calidad_aire$fecha - lag(calidad_aire$fecha))
+```
+
+
+
+
+
+```{r}
+calidad_aire <- calidad_aire %>% 
+  filter(anyo >= 2005)
+```
+
+
+# Resumen de las variables
+
+```{r}
+skimr::skim(calidad_aire)
+```
+
+## PM2.5
+
+La medición de la magnitud a lo largo del tiempo se puede ver en el siguiente gráfico
+
+```{r}
+p <- calidad_aire %>% 
+  ggplot(
+    aes(x = fecha, 
+        y = pm25)
+  ) +
+  geom_line() +
+  scale_x_date(date_breaks = "1 year", date_labels = "%Y")
+p
+```
+
+La información del gráfico anterior es difícil de asimilar. En este caso podría ayudarnos si tuviésemos un gráfico interactivo. Podemos convertir un gráfico de `ggplot2` a interactivo con ayuda del paquete `plotly`
+
+```{r}
+plotly::ggplotly(p)
+```
+
+En el gráfico anterior se aprecia vagamente un comportamiento cíclico de forma que los valores parecen incrementarse en los meses centrales del año. Podemos analizar este comportamiento en el siguiente gráfico
+
+```{r}
+calidad_aire %>% 
+  ggplot(aes(x = mes, y = pm25)) + 
+  geom_jitter(alpha = 0.25) +
+  geom_boxplot(aes(group = mes), alpha = 0, color = "firebrick", size = .75) +
+  scale_x_continuous(breaks = 1:12)
+```
+
+A priori, el mes parece relevante en el comportamiento de la variable. En la fase de modelización comprobaremos si influye en la predicción o no.
+
+# Preparación para modelización
+
+Antes de modelizar es necesario abordar dos tareas:
+
+1. Generar nuevas variables a partir de la información ya existente en los datos o de información externa.
+2. Modificar las variables para que el modelo solo pueda utilizar la información que tendría en el entorno real de predicción.
+
+## Generación de variables
+
+El conocimiento que se tenga del contexto del proyecto en muchos casos es fundamental para obtener mejores modelos. Distinguimos dos tipos de generación de variables. El primero de ellos es la generación variables a partir de la información que contiene el propio conjunto de datos. El segundo será introducir información externa.
+
+### Información del propio conjunto de datos
+
+#### Día de la semana (`dia_sem` y `finde`)
+
+Al tratarse de datos de calidad del aire, puede ser un factor relevante el **día de la semana**. A priori (y será algo que tengamos que comprobar en la fase de modelización), el mayor o menor uso de los vehículos, podría influir. Generamos la nueva variable `dia_sem`.
+
+```{r}
+calidad_aire$dia_sem <- 
+  lubridate::wday(calidad_aire$fecha, 
+                  label = TRUE,
+                  week_start = 1)
+```
+
+Igual que hicimos anteriormente con el mes, podemos representar el comportamiento de la variables `pm25` en función del día de la semana.
+
+
+```{r}
+calidad_aire %>% 
+  ggplot(aes(x = dia_sem, y = pm25)) + 
+  geom_jitter(alpha = 0.25) +
+  geom_boxplot(aes(group = dia_sem), alpha = 0, color = "firebrick", size = .75)
+```
+
+En el gráfico anterior, el sábado y el domingo están, en media, *ligeramente* por debajo de los otros días. Por este motivo, vamos a crear también una variable que indique si la observación se corresponde con el fin de semana.
+
+```{r}
+calidad_aire$finde <- as.numeric(calidad_aire$dia_sem %in% c("sáb", "dom"))
+```
+
+#### Valor medio mensual (`*_med_mes`)
+
+Aunque disponemos de la variable mes y el modelo de predicción la puede tener en cuenta, a veces ayuda a tener el valor medio de cada mes
+
+```{r}
+calidad_aire <- calidad_aire %>% 
+  group_by(mes) %>% 
+  mutate_at(vars(so2:nmhc), list(med_mes = mean), na.rm = TRUE)
+```
+
+#### Incremento de mediciones (`*_inc1`)
+
+Es habitual en el caso de series temporales incluir el incremento porcentual respecto del día anterior.
+
+```{r}
+calidad_aire <- calidad_aire %>% 
+  mutate_at(vars(so2:nmhc),
+            list(inc1 = function(x) (x - lag(x))/lag(x))
+            )
+```
+
+Se podrían generar muchas más variables y, conforme se va ganando experiencia en un determinado contexto, mejor sabremos qué variables suelen ser relevantes.
+
+
+### Variables con información externa
+
+- Laborable
+- Temperatura
+- Precipitación
+- Activación protocolo
+
+
+
+
+
+
