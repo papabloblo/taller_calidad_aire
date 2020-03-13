@@ -89,6 +89,7 @@ calidad_aire %>%
     names_to = "magnitud"
   ) %>% 
   mutate(value = is.na(value)) %>% 
+  filter(value == TRUE) %>% 
   ggplot(
     aes(x = magnitud,
         y = fecha,
@@ -96,7 +97,7 @@ calidad_aire %>%
     )
   ) +
   geom_tile() +
-  scale_fill_manual(values = c("0" = "black", "1" = "white")) +
+  scale_fill_manual(values = c("1" = "black", "0" = "white")) +
   theme_minimal() +
   labs(
     title = "Porcentaje de mediciones ausentes en cada estación",
@@ -297,15 +298,35 @@ calidad_aire <- calidad_aire %>%
 Es interesante conocer la correlación de la variable objetivo con respecto a las predictoras:
 
 ```{r}
-cor(calidad_aire$pm25, 
+cor_pm25 <- cor(calidad_aire$pm25, 
     select(calidad_aire, ends_with("lag")), 
     use = "complete.obs"
     )
+
+sort(cor_pm25[1,])
 ```
 
 > **Nota**: en la correlación utilizamos `use = "complete.obs"` para que no tenga en cuenta los `NA` en el cálculo.
 
-Puedes ver que la mayor correlación de `pm25` se da con `pm25_lag`.
+Puedes ver que la mayor correlación de `pm25` se da con `pm25_lag`. Podemos corroborarlo representando la relación entre ambas variables mediante un diagrama de dispersión:
+
+```{r}
+calidad_aire %>% 
+  ggplot(
+    aes(x = pm25_lag,
+        y = pm25
+    )
+  ) +
+  geom_point(alpha = 0.25) +
+  geom_smooth() +
+  theme_minimal() +
+  labs(
+    title = "Relación de PM2.5 con el día anterior",
+    x = "PM25 del día anterior",
+    y = "",
+    caption = "MSMK: taller de calidad del aire"
+  )
+```
 
 
 # Train y test
