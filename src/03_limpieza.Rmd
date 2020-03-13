@@ -1,34 +1,35 @@
 ---
 title: "Análisis exploratorio de datos"
 author: "Pablo Hidalgo García"
-output: html_document
+output: 
+  html_document: 
+    number_sections: yes
+    toc: yes
+    toc_float: yes
 ---
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
-library(tidyverse)
-library(leaflet)
 ```
 
 # Importación de datos
 
 
 ```{r}
+library(tidyverse)
 calidad_aire <- readRDS("data/02_estructura.RDS")
 calidad_aire_orig <- readRDS("data/raw/calidad_aire.RDS")
 estaciones <- readRDS("data/raw/coordenadas_estaciones.RDS")
 ```
 
-El conjunto de datos **calidad del aire** contiene `r nrow(calidad_aire)` observaciones y `r ncol(calidad_aire)` variables. En las secciones siguientes analizaremos los datos haciendo las operaciones de transformación y limpieza necesarias
-
-
-# Calidad de la información
+El conjunto de datos **calidad del aire** contiene `r nrow(calidad_aire)` observaciones y `r ncol(calidad_aire)` variables. En las secciones siguientes analizaremos los datos haciendo las operaciones de transformación y limpieza necesarias.
 
 # Estaciones de medición
 
 Existen `r length(unique(calidad_aire$estacion))` estaciones distintas cuya situación se puede ver en el siguiente mapa
 
 ```{r}
+library(leaflet)
 leaflet(data = estaciones) %>%
   addTiles() %>%
   addMarkers(lng = ~longitud, lat = ~latitud,
@@ -147,96 +148,25 @@ En un proyecto real, habría que inspeccionar el comportamiento variable a varia
 
 
 
-# Estaciones
 
-Existen `r length(unique(calidad_aire$estacion))` estaciones distintas. La calidad de las mediciones recogidas por la estaciones es variable
+## Variable `pm25`
 
-```{r}
-porc_na <- calidad_aire %>% 
-  group_by(estacion) %>% 
-  summarise_at(vars(so2:nmhc), function(x) mean(is.na(x)))
-```
+La distribución de la variable `pm25` es la siguiente:
 
 ```{r}
-porc_na %>% 
-  pivot_longer(
-    cols = so2:nmhc,
-    names_to = "magnitud"
-  ) %>% 
+calidad_aire %>% 
   ggplot(
-    aes(x = magnitud,
-        y = as.factor(estacion),
-        fill = value)
+    aes(x = pm25)
   ) +
-  geom_tile() +
-  theme_minimal() +
+  geom_histogram() +
   labs(
-    title = "Porcentaje de mediciones ausentes en cada estación",
-    fill = "",
+    title = "Distribución de la variable pm2.5",
     x = "",
-    y = "Estación",
-    caption = "MSMK: taller de calidad del aire"
+    y = "",
+    caption = "MSMK"
   ) +
-  theme(legend.position = "top")
+  theme_minimal()
 ```
-
-```{r}
-calidad_aire %>%
-  select(anyo, mes, estacion, so2:nmhc) %>% 
-  pivot_longer(
-    cols = so2:nmhc,
-    names_to = "magnitud"
-  ) %>% 
-  group_by(anyo, magnitud) %>% 
-  summarise(porc_na = mean(is.na(value))) %>% 
-  # mutate(fecha = lubridate::make_date(year = anyo, month = mes, day = 1L)) %>% 
-  ggplot(
-    aes(x = magnitud,
-        y = anyo,
-        fill = porc_na)
-  ) +
-  geom_tile() +
-  labs(
-    title = "Porcentaje de mediciones ausentes en cada estación",
-    fill = "Porcentaje de\nmediciones ausentes"
-  ) +
-  theme(legend.position = "top")
-```
-
-
-
-```{r}
-calidad_aire <- calidad_aire %>% 
-  group_by(fecha, anyo, mes, dia) %>% 
-  summarise_at(vars(so2:nmhc), mean, na.rm = TRUE) %>% 
-  ungroup()
-```
-
-
-```{r}
-calidad_aire <- calidad_aire %>% 
-  arrange(fecha)
-
-table(calidad_aire$fecha - lag(calidad_aire$fecha))
-```
-
-
-
-
-
-```{r}
-calidad_aire <- calidad_aire %>% 
-  filter(anyo >= 2005)
-```
-
-
-# Resumen de las variables
-
-```{r}
-skimr::skim(calidad_aire)
-```
-
-## PM2.5
 
 La medición de la magnitud a lo largo del tiempo se puede ver en el siguiente gráfico
 
@@ -295,7 +225,6 @@ calidad_aire$dia_sem <-
 
 Igual que hicimos anteriormente con el mes, podemos representar el comportamiento de la variables `pm25` en función del día de la semana.
 
-
 ```{r}
 calidad_aire %>% 
   ggplot(aes(x = dia_sem, y = pm25)) + 
@@ -316,7 +245,8 @@ Aunque disponemos de la variable mes y el modelo de predicción la puede tener e
 ```{r}
 calidad_aire <- calidad_aire %>% 
   group_by(mes) %>% 
-  mutate_at(vars(so2:nmhc), list(med_mes = mean), na.rm = TRUE)
+  mutate_at(vars(so2:nmhc), list(med_mes = mean), na.rm = TRUE) %>% 
+  ungroup()
 ```
 
 #### Incremento de mediciones (`*_inc1`)
@@ -332,16 +262,66 @@ calidad_aire <- calidad_aire %>%
 
 Se podrían generar muchas más variables y, conforme se va ganando experiencia en un determinado contexto, mejor sabremos qué variables suelen ser relevantes.
 
+## Estructura adecuada para la modelización
 
-### Variables con información externa
+Recordemos que el objetivo es **predecir el valor de `pm25` en el día posterior**. Eso significa que, si queremos predecir el valor para el 9 de febrero, tenemos que suponer que **solamente conocemos la información hasta el día 8 de febrero**. Por lo tanto, el valor que podremos utilizar de las variables para predecir un día, debe ser la información disponible hasta el día anterior. Por ejemplo, no podemos utilizar el valor de `so2` en el mismo día que el valor de `pm25` que queremos predecir. Necesitamos que el valor de cada variable esté *retrasado* en un día. Esto lo podemos hacer mediante la función `lag`. Para entenderlo, vamos hacer primero un ejemplo. Si tuviésemos el vector `c(1,2,3,4)`, si aplicamos la función `lag` obtendríamos
 
-- Laborable
-- Temperatura
-- Precipitación
-- Activación protocolo
+```{r}
+lag(c(1,2,3,4))
+```
+
+Obviamente, el valor anterior del primer elemento del vector es desconocido y por eso aparece como `NA`. 
+
+Ahora generamos una nueva variable `_lag` por cada variable que tengamos que retrasar. Por ejemplo
+
+```{r eval=FALSE}
+calidad_aire$so2_lag <- lag(calidad_aire$so2)
+```
+
+Este procedimiento habría que repetirlo demasiadas veces y sería demasiado pesado para hacerlo de forma manual. Para *automatizarlo* podemos utilizar la función `mutate_at`:
+
+```{r}
+calidad_aire <- calidad_aire %>% 
+  mutate_at(vars(so2:nmhc, so2_med_mes:nmhc_inc1), list(lag = lag))
+```
+
+**Nota**: lo que acabamos de hacer se puede traducir como: aplica la función `lag` a aquellas variables que están entre `so2` y `nmhc`. Al utilizar `list(lag = lag)`, cada variable que se crea termina en `_lag`.
+
+Para finalizar la creación de estas variables, debemos eliminar todas las variables que no son lag y quedarnos solamente con `pm25` que es la variable que queremos predecir.
+
+```{r}
+calidad_aire <- calidad_aire %>% 
+  select(fecha, anyo:dia, dia_sem, finde, ends_with("_lag"), pm25)
+```
+
+Es interesante conocer la correlación de la variable objetivo con respecto a las predictoras:
+
+```{r}
+cor(calidad_aire$pm25, 
+    select(calidad_aire, ends_with("lag")), 
+    use = "complete.obs"
+    )
+```
+
+> **Nota**: en la correlación utilizamos `use = "complete.obs"` para que no tenga en cuenta los `NA` en el cálculo.
+
+Puedes ver que la mayor correlación de `pm25` se da con `pm25_lag`.
 
 
+# Train y test
 
+Por último, como hacemos habitualmente, vamos a dividir el conjunto de datos en `train` y `test`. Entrenaremos con datos hasta `2019-09-01` y los restantes para `test`:
+```{r}
+train <- calidad_aire[calidad_aire$fecha < as.Date("2019-09-01"),]
+test <- calidad_aire[calidad_aire$fecha >= as.Date("2019-09-01"),]
+```
 
+# Exportación de la información
 
+Igual que hicimos en la fase anterior, almacenamos estos datos en el disco duro.
+
+```{r}
+saveRDS(train, file = "data/train.RDS")
+saveRDS(test, file = "data/test.RDS")
+```
 
