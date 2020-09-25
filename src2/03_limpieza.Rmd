@@ -1,0 +1,171 @@
+---
+title: "Análisis exploratorio de datos"
+author: "Pablo Hidalgo García"
+date: "14/3/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Importación de datos y dependencias
+
+```{r}
+library(tidyverse)
+calidad_aire <- readRDS("data/02_estructura.RDS")
+estaciones <- readRDS("data/raw/coordenadas_estaciones.RDS")
+```
+
+El conjunto de datos **calidad aire** contiene `r nrow(calidad_aire)` observaciones y `r ncol(calidad_aire)` variables.
+
+# Estaciones de medición
+
+```{r}
+library(leaflet)
+leaflet(data = estaciones) %>% 
+  addTiles() %>% 
+  addMarkers(
+    lng = ~longitud,
+    lat = ~latitud,
+    label = ~as.character(estacion)
+  )
+```
+
+
+```{r}
+porc_na <- calidad_aire %>% 
+  group_by(estacion) %>% 
+  summarise_at(
+    vars(so2:nmhc),
+    function(x) mean(is.na(x))
+  )
+```
+
+```{r}
+porc_na %>% 
+  pivot_longer(
+    cols = so2:nmhc,
+    names_to = "magnitud"
+  ) %>% 
+  ggplot(
+    aes(x = magnitud,
+        y = as.factor(estacion),
+        fill = value)
+  ) +
+  geom_tile() +
+  theme_minimal() +
+  labs(
+    title = "Porcentaje de mediciones ausentes para cada magnitud y estación",
+    fill = "",
+    x = "",
+    y = "Estación",
+    caption = "MSMK: taller de calidad del aire"
+  ) +
+  scale_fill_continuous(trans = "reverse", labels = scales::percent, breaks = c(1, 0.5, 0), limits = c(1, 0)) +
+  theme(legend.position = "top")
+```
+
+```{r}
+calidad_aire <- calidad_aire %>% 
+  group_by(fecha, anyo, mes, dia) %>% 
+  summarise_at(
+    vars(so2:nmhc),
+    mean,
+    na.rm = TRUE
+  )
+```
+
+```{r}
+calidad_aire %>% 
+  pivot_longer(
+    cols = so2:nmhc,
+    names_to = "magnitud"
+  ) %>% 
+  mutate(value = is.na(value)) %>% 
+  filter(value == TRUE) %>% 
+  ggplot(
+    aes(x = magnitud,
+        y = fecha,
+        fill = as.character(as.numeric(value))
+    )
+  ) +
+  geom_tile() +
+  scale_fill_manual(values = c("1" = "black", "0" = "white")) +
+  theme_minimal() +
+  labs(
+    title = "Porcentaje de mediciones ausentes en cada estación",
+    fill = "",
+    x = "",
+    y = "Estación",
+    caption = "MSMK: taller de calidad del aire"
+  ) +
+  theme(legend.position = "none")
+```
+
+```{r}
+calidad_aire <- calidad_aire %>% 
+  filter(fecha >= as.Date("2005-01-01"))
+```
+
+```{r}
+calidad_aire <- calidad_aire %>% 
+  arrange(fecha)
+
+table(calidad_aire$fecha - lag(calidad_aire$fecha))
+```
+
+# Resumen de las variables
+
+```{r}
+calidad_aire <- calidad_aire %>% 
+  ungroup()
+skimr::skim(calidad_aire)
+```
+
+# Variable `pm25`
+
+```{r}
+hist(calidad_aire$pm25)
+```
+
+```{r}
+calidad_aire %>% 
+  ggplot(
+    aes(x = pm25)
+  ) +
+  geom_histogram() +
+  labs(
+    title = "Distribución de la variable pm2.5",
+    x = "",
+    y = "",
+    caption = "MSMK"
+  ) + 
+  theme_minimal()
+```
+
+
+
+```{r}
+p <- calidad_aire %>% 
+  ggplot(
+    aes(
+      x = fecha,
+      y = pm25
+    )
+  ) +
+  geom_line() +
+  scale_x_date(date_breaks = "1 year",
+               date_labels = "%Y")
+```
+
+
+
+```{r}
+plotly::ggplotly(p)
+```
+
+
+
+
+
